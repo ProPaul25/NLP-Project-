@@ -1,0 +1,40 @@
+# Week 1 — data cleaning, alignment filtering, exploratory topic clustering.
+# All paths are relative to the project root (/raid/home/loitongbam/Project_NLP).
+
+seed: 42
+
+paths:
+  raw_chauhan: data/raw/chauhan_kangri
+  raw_mendeley: data/raw/mendeley_hi_kangri
+  interim: data/interim
+  processed: data/processed
+  results: outputs/results/week_01_data_and_clusters
+
+clean:
+  min_words: 3                 # pair dropped if either side has fewer Devanagari words
+  min_devanagari_ratio: 0.6    # pair dropped if either side is less Devanagari than this
+                               # (0.6 keeps lines with one English word in brackets, e.g. "(semi-solid)")
+  max_len_ratio: 3.0           # pair dropped if one side is >3x longer (likely misaligned)
+
+align:
+  model: sentence-transformers/LaBSE
+  batch_size: 256
+  thresholds:                  # per corpus; null = no LaBSE filter (chosen from a blind human check of 140 pairs)
+    mendeley: null             # every dropped Mendeley pair in the check was a correct translation
+    chauhan: 0.30              # 0.30-0.45 band: no wrong pairs; below 0.30: about half wrong
+
+cluster:
+  split: pool                  # cluster only the training pool; Chauhan test set is kept out
+  text_side: hindi             # Hindi side: much better embeddings than raw Kangri
+  models:
+    - name: labse
+      hf_id: sentence-transformers/LaBSE
+      prefix: ""
+    - name: e5
+      hf_id: intfloat/multilingual-e5-base
+      prefix: "query: "        # E5 expects this prefix for symmetric tasks such as clustering
+  batch_size: 256
+  k_values: [8, 12, 16, 20, 30]
+  n_examples: 20
+  n_keywords: 12
+  silhouette_sample: 5000

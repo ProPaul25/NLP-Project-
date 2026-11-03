@@ -1,0 +1,132 @@
+# Bengali–Hindi pilot: build and test the training/evaluation pipeline before the Kangri labels are ready.
+# All paths are relative to the project root (/raid/home/loitongbam/Project_NLP).
+# Only MASSIVE is used for training; SIB-200, IN22-Conv and IN22-Gen are evaluation-only.
+
+seed: 42
+
+paths:
+  raw: data/raw/pilot_bn
+  processed: data/processed/pilot_bn
+  results: outputs/results/pilot_bn
+
+prepare:
+  src_lang: ben      # Bengali side, plays the role Kangri plays later
+  tgt_lang: hin      # Hindi side
+  massive:
+    dir: massive                     # bn-BD.jsonl, hi-IN.jsonl
+    src_file: bn-BD.jsonl
+    tgt_file: hi-IN.jsonl
+  sib200:
+    dir: sib200                      # ben_Beng/ and hin_Deva/, each with train/dev/test.tsv + labels.txt
+    src_dir: ben_Beng
+    tgt_dir: hin_Deva
+  in22_conv: in22_conv.parquet
+  in22_gen: in22_gen.parquet
+  src_col: ben_Beng                  # column names inside the IN22 parquet files
+  tgt_col: hin_Deva
+  extra_cols: [doi_Deva]             # Dogri kept for a later close-to-Kangri check
+
+  
+evaluate:
+  sets:                       # dataset file in data/processed/pilot_bn + which split to score
+    - {name: sib200,    split: test}
+    - {name: in22_conv, split: test}
+    - {name: in22_gen,  split: test}
+  models:                     # base models, then fine-tuned checkpoints
+    - {name: labse,       path: sentence-transformers/LaBSE,                 prefix: ""}
+    - {name: e5,          path: intfloat/multilingual-e5-base,               prefix: "query: "}
+    - {name: e5_trans,    path: outputs/checkpoints/pilot_bn/e5_trans/best,    prefix: "query: "}
+    - {name: e5_topic,    path: outputs/checkpoints/pilot_bn/e5_topic/best,    prefix: "query: "}
+    - {name: e5_both,     path: outputs/checkpoints/pilot_bn/e5_both/best,     prefix: "query: "}
+    - {name: labse_trans, path: outputs/checkpoints/pilot_bn/labse_trans/best, prefix: ""}
+    - {name: labse_topic, path: outputs/checkpoints/pilot_bn/labse_topic/best, prefix: ""}
+    - {name: labse_both,  path: outputs/checkpoints/pilot_bn/labse_both/best,  prefix: ""}
+    - {name: e5_trans_s43,    path: outputs/checkpoints/pilot_bn/e5_trans_s43/best,    prefix: "query: "}
+    - {name: e5_topic_s43,    path: outputs/checkpoints/pilot_bn/e5_topic_s43/best,    prefix: "query: "}
+    - {name: e5_both_s43,     path: outputs/checkpoints/pilot_bn/e5_both_s43/best,     prefix: "query: "}
+    - {name: labse_trans_s43, path: outputs/checkpoints/pilot_bn/labse_trans_s43/best, prefix: ""}
+    - {name: labse_topic_s43, path: outputs/checkpoints/pilot_bn/labse_topic_s43/best, prefix: ""}
+    - {name: labse_both_s43,  path: outputs/checkpoints/pilot_bn/labse_both_s43/best,  prefix: ""}
+    - {name: e5_trans_s44,    path: outputs/checkpoints/pilot_bn/e5_trans_s44/best,    prefix: "query: "}
+    - {name: e5_topic_s44,    path: outputs/checkpoints/pilot_bn/e5_topic_s44/best,    prefix: "query: "}
+    - {name: e5_both_s44,     path: outputs/checkpoints/pilot_bn/e5_both_s44/best,     prefix: "query: "}
+    - {name: labse_trans_s44, path: outputs/checkpoints/pilot_bn/labse_trans_s44/best, prefix: ""}
+    - {name: labse_topic_s44, path: outputs/checkpoints/pilot_bn/labse_topic_s44/best, prefix: ""}
+    - {name: labse_both_s44,  path: outputs/checkpoints/pilot_bn/labse_both_s44/best,  prefix: ""}
+  batch_size: 128
+  knn_k: 5
+  exclude_same_group: true    # IN22-Conv: neighbours from the same conversation don't count
+  n_boot: 1000                # bootstrap resamples for the 95% intervals
+
+
+train:
+  base_models:                       # every variant is trained once from each starting model
+    e5:    {path: intfloat/multilingual-e5-base, prefix: "query: "}
+    labse: {path: sentence-transformers/LaBSE,   prefix: ""}
+  variants:                          # loss weights; the three rows of the results table
+    trans: {translation: 1.0, topic: 0.0}    # translation pairs only (LASER3-CO-style baseline)
+    topic: {translation: 0.0, topic: 1.0}    # topic labels only
+    both:  {translation: 1.0, topic: 1.0}    # proposed: translation + topic
+  data:                              # training sets from data/processed/pilot_bn
+    - {name: massive, split: train, repeat: 1}
+    - {name: sib200,  split: train, repeat: 4}   # 701 pairs x4 so the small set is not drowned out
+  batch_from_one_dataset: true       # never mix MASSIVE and SIB-200 in one batch: their topic lists differ
+  dev: {name: sib200, split: dev}    # picks the best checkpoint; test sets are never used for this
+  epochs: 3
+  batch_size: 64
+  lr: 2.0e-5
+  warmup_ratio: 0.1
+  temperature: 0.05                  # contrastive loss temperature (LASER3-CO also used 0.05)
+  max_len: 128
+  eval_every: 100                    # steps between dev checks
+  output_dir: outputs/checkpoints/pilot_bn
+
+
+compare:
+  pairs:                              # [A, B]: is B better than A on the same test sentences?
+    # does each kind of training change the starting model?
+    - [e5, e5_trans]
+    - [e5, e5_topic]
+    - [e5, e5_both]
+    - [labse, labse_trans]
+    - [labse, labse_topic]
+    - [labse, labse_both]
+    # is the proposed variant better than either single loss?
+    - [e5_topic, e5_both]
+    - [e5_trans, e5_both]
+    - [labse_topic, labse_both]
+    # LASER3-CO comparisons
+    - [laser, laser_co]
+    - [laser, laser_co_filter]
+    - [laser, laser_co_topic]
+    - [laser_co, laser_co_topic]
+  metrics: [ok_src, ok_cross, xsim_ok_src2tgt]   # topic (Bengali), topic (Bengali->Hindi), translation
+  n_boot: 10000
+
+aggregate:
+  seeds: [42, 43, 44]
+  runs: [e5_trans, e5_topic, e5_both, labse_trans, labse_topic, labse_both, laser_co, laser_co_filter, laser_co_topic]
+  metrics: [knn_acc_src, knn_acc_cross, xsim_src2tgt, xsim_tgt2src, nmi_src]
+
+
+laser:
+  name: laser
+  src_lang: ben_Beng
+  tgt_lang: hin_Deva
+  model_dir: outputs/laser_models
+
+
+laser_co:
+  output_dir: outputs/checkpoints/pilot_bn_laser
+  batch_size: 32
+  queue_size: 4096
+  temperature: 0.05
+  lr: 1.0e-5
+  warmup_ratio: 0.1
+  epochs: 3
+  eval_every: 100
+  in_batch_negatives: true
+  variants:
+    co:        {topic: 0.0, filter_sigma: null, shuffle: true,  select_by: xsim}
+    co_filter: {topic: 0.0, filter_sigma: 0.9,  shuffle: false, select_by: xsim}
+    co_topic:  {topic: 1.0, filter_sigma: null, shuffle: true,  select_by: topic}

@@ -1,0 +1,36 @@
+# Week 2 — development (gold) set, then exploratory topic clustering.
+# All paths are relative to the project root (/raid/home/loitongbam/Project_NLP).
+# configs/week01.yaml stays unchanged as the record of the week-1 runs.
+
+seed: 42
+
+paths:
+  interim: data/interim
+  processed: data/processed
+  results: outputs/results/week_02_dev_and_clusters
+
+split:
+  input: data/processed/pairs.tsv            # 42,336 clean pairs from week 1 (never modified)
+  output: data/processed/pairs_split.tsv     # same pairs + split column: train / gold_dev / excluded_dup
+  dev_size: 1000                             # hand-labelled development set, stratified by source
+  annotation_dir: data/annotation
+  near_dup_check: true                       # move train pairs whose Hindi or Kangri side equals a gold
+                                             # pair's after removing punctuation/spacing to excluded_dup
+
+cluster:
+  input: data/processed/pairs_split.tsv      # MUST be the split file, not pairs.tsv (gold pairs are in pairs.tsv)
+  split: train                               # cluster only the training part
+  gold_ids: data/annotation/gold_dev_ids.txt # cluster.py refuses to run if any of these ids reach it
+  text_side: hindi                           # Hindi side: much better embeddings than raw Kangri
+  models:
+    - name: labse
+      hf_id: sentence-transformers/LaBSE
+      prefix: ""
+    - name: e5
+      hf_id: intfloat/multilingual-e5-base
+      prefix: "query: "                      # E5 expects this prefix for symmetric tasks such as clustering
+  batch_size: 256
+  k_values: [8, 12, 16, 20, 30]
+  n_examples: 20
+  n_keywords: 12
+  silhouette_sample: 5000
